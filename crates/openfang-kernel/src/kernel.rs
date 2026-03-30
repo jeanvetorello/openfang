@@ -2889,20 +2889,16 @@ impl OpenFangKernel {
         model: &str,
         explicit_provider: Option<&str>,
     ) -> KernelResult<()> {
-        let catalog_entry = self
-            .model_catalog
-            .read()
-            .ok()
-            .and_then(|catalog| {
-                // When the caller specifies a provider, use provider-aware lookup
-                // so we resolve the model on the correct provider — not a builtin
-                // from a different provider that happens to share the same name (#833).
-                if let Some(ep) = explicit_provider {
-                    catalog.find_model_for_provider(model, ep).cloned()
-                } else {
-                    catalog.find_model(model).cloned()
-                }
-            });
+        let catalog_entry = self.model_catalog.read().ok().and_then(|catalog| {
+            // When the caller specifies a provider, use provider-aware lookup
+            // so we resolve the model on the correct provider — not a builtin
+            // from a different provider that happens to share the same name (#833).
+            if let Some(ep) = explicit_provider {
+                catalog.find_model_for_provider(model, ep).cloned()
+            } else {
+                catalog.find_model(model).cloned()
+            }
+        });
         let provider = if let Some(ep) = explicit_provider {
             // User explicitly set the provider — use it as-is
             Some(ep.to_string())
@@ -3949,7 +3945,18 @@ impl OpenFangKernel {
                     catalog
                         .list_providers()
                         .iter()
-                        .filter(|p| !p.key_required)
+                        // Probe only local HTTP endpoints. CLI-backed providers
+                        // (opencode/claude-code/qwen-code) are not HTTP services
+                        // and would produce noisy "builder error" warnings here.
+                        .filter(|p| {
+                            let url = p.base_url.to_ascii_lowercase();
+                            url.starts_with("http://localhost")
+                                || url.starts_with("http://127.0.0.1")
+                                || url.starts_with("http://[::1]")
+                                || url.starts_with("https://localhost")
+                                || url.starts_with("https://127.0.0.1")
+                                || url.starts_with("https://[::1]")
+                        })
                         .map(|p| (p.id.clone(), p.base_url.clone()))
                         .collect()
                 };
